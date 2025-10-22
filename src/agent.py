@@ -26,7 +26,7 @@ except ImportError:
     logger_init = logging.getLogger("agent")
     logger_init.warning("⚠️ OpenAI plugin not available, will use Silero TTS")
 
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
+from livekit.plugins import turn_detector
 
 logger = logging.getLogger("agent")
 
@@ -148,7 +148,7 @@ async def entrypoint(ctx: JobContext):
         # Text-to-speech - configured above with fallback logic
         tts=tts_option,
         # Voice Activity Detection and turn detection
-        turn_detection=MultilingualModel(),
+        turn_detection=turn_detector.VADCutoffTurnDetector(),
         vad=ctx.proc.userdata["vad"],
         # Allow preemptive generation while waiting for user turn end
         preemptive_generation=True,
