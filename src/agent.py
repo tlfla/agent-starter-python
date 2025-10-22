@@ -26,8 +26,6 @@ except ImportError:
     logger_init = logging.getLogger("agent")
     logger_init.warning("⚠️ OpenAI plugin not available, will use Silero TTS")
 
-from livekit.plugins.turn_detector import EOUPlugin
-
 logger = logging.getLogger("agent")
 
 load_dotenv(".env.local")
@@ -147,8 +145,7 @@ async def entrypoint(ctx: JobContext):
         llm=f"openai/{llm_model}",
         # Text-to-speech - configured above with fallback logic
         tts=tts_option,
-        # Voice Activity Detection and turn detection
-        turn_detection=EOUPlugin(),
+        # Voice Activity Detection (VAD) - using Silero VAD
         vad=ctx.proc.userdata["vad"],
         # Allow preemptive generation while waiting for user turn end
         preemptive_generation=True,
