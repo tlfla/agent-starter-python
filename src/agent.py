@@ -103,7 +103,7 @@ async def entrypoint(ctx: JobContext):
     }
 
     logger.info(f"🤖 Agent starting in room: {ctx.room.name}")
-    logger.info("✅ Cartesia TTS deployment with fallback ready")
+    logger.info("✅ Cartesia TTS + EOUPlugin turn detector ready for webhook mode")
 
     # Verify OpenAI API key is available
     openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -245,9 +245,15 @@ async def entrypoint(ctx: JobContext):
 
 
 if __name__ == "__main__":
-    print("\n" + "="*60)
-    print("🔧 DEV MODE: Agent will auto-join room on startup")
-    print("   To disable, set: LIVEKIT_AGENT_MODE=webhook")
-    print("="*60 + "\n")
+    agent_mode = os.getenv("LIVEKIT_AGENT_MODE", "webhook")
 
-    cli.run_app(WorkerOptions(entrypoint_fnc=dev_mode_entrypoint, prewarm_fnc=prewarm))
+    if agent_mode == "webhook":
+        print("\n" + "="*60)
+        print("🔌 WEBHOOK MODE: Agent waiting for job requests")
+        print("="*60 + "\n")
+        cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm))
+    else:
+        print("\n" + "="*60)
+        print("🔧 DEV MODE: Agent will auto-join room on startup")
+        print("="*60 + "\n")
+        cli.run_app(WorkerOptions(entrypoint_fnc=dev_mode_entrypoint, prewarm_fnc=prewarm))
