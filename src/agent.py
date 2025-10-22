@@ -103,6 +103,7 @@ async def entrypoint(ctx: JobContext):
     }
 
     logger.info(f"🤖 Agent starting in room: {ctx.room.name}")
+    logger.info("✅ Cartesia TTS deployment with fallback ready")
 
     # Verify OpenAI API key is available
     openai_api_key = os.getenv("OPENAI_API_KEY")
