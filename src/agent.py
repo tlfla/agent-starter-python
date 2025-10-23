@@ -248,7 +248,11 @@ if __name__ == "__main__":
         print("\n" + "="*60)
         print("🔌 WEBHOOK MODE: Agent waiting for job requests")
         print("="*60 + "\n")
-        cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm))
+        try:
+            cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm))
+        except Exception as e:
+            logger.error(f"❌ Worker error: {e}")
+            raise
     else:
         print("\n" + "="*60)
         print("🔧 DEV MODE: Agent will auto-join room on startup")
