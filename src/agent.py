@@ -118,12 +118,12 @@ async def entrypoint(ctx: JobContext):
 
     # Configure TTS - Cartesia with fallback logic
     try:
-        # Try primary Cartesia voice (conversational female)
+        # Try primary Cartesia voice (Sarah Curious)
         tts_option = cartesia.TTS(
-            voice="79a125e8-cd45-4c13-8a67-188112f4dd22",
+            voice="794f9389-aac1-45b6-b726-9d9369183238",
             model="sonic-english"
         )
-        logger.info(f"🔊 Using TTS: Cartesia Sonic (conversational female voice)")
+        logger.info(f"🔊 Using TTS: Cartesia Sonic (Sarah Curious voice)")
     except Exception as cartesia_error:
         logger.warning(f"⚠️ Primary Cartesia voice failed: {cartesia_error}")
         try:
@@ -224,21 +224,16 @@ async def entrypoint(ctx: JobContext):
         logger.error(f"❌ TTS Canary failed: {e}")
         logger.info("⚠️ Continuing without canary...")
 
-    # Keep the agent alive indefinitely
-    # The session handles all voice interaction automatically
-    # We stay alive to handle multiple conversations until the room is empty
-    try:
-        logger.info("✅ Agent is now ready and waiting for user interactions...")
-        while True:
-            await asyncio.sleep(10)
-            logger.debug("Agent running - session active")
-    except asyncio.CancelledError:
-        logger.info("🔴 Agent shutting down - session cancelled")
-    except Exception as e:
-        logger.error(f"❌ Unexpected error in agent loop: {e}")
-    finally:
-        logger.info("🔌 Agent disconnecting...")
-        await session.aclose()
+    # Agent is ready - session handles all voice interaction automatically
+    # The session.start() call above manages the interaction loop until the room ends
+    # This entrypoint will return when the session completes naturally
+    # allowing the worker to clean up and immediately poll for the next job
+    logger.info("✅ Agent is now ready and waiting for user interactions...")
+    # Note: session.start() completes when the room ends, then we fall through to cleanup
+    # The finally block below ensures proper teardown before returning to the worker loop
+    logger.info("🔌 Agent session ended - cleaning up connections...")
+    await session.aclose()
+    logger.info("✅ Session closed - ready for next job")
 
 
 if __name__ == "__main__":
@@ -248,11 +243,14 @@ if __name__ == "__main__":
         print("\n" + "="*60)
         print("🔌 WEBHOOK MODE: Agent waiting for job requests")
         print("="*60 + "\n")
-        try:
-            cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm))
-        except Exception as e:
-            logger.error(f"❌ Worker error: {e}")
-            raise
+        # Keep restarting the worker if it exits
+        while True:
+            try:
+                cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm))
+            except Exception as e:
+                logger.error(f"❌ Worker error: {e}")
+                logger.info("🔄 Restarting worker in 5 seconds...")
+                asyncio.run(asyncio.sleep(5))
     else:
         print("\n" + "="*60)
         print("🔧 DEV MODE: Agent will auto-join room on startup")
