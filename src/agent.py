@@ -121,12 +121,12 @@ async def entrypoint(ctx: JobContext):
 
     # Configure TTS - Cartesia with fallback logic
     try:
-        # Try primary Cartesia voice (Sarah Curious)
+        # Try primary Cartesia voice (California Girl)
         tts_option = cartesia.TTS(
-            voice="794f9389-aac1-45b6-b726-9d9369183238",
+            voice="b7d50908-b17c-442d-ad8d-810c63997ed9",
             model="sonic-english"
         )
-        logger.info(f"🔊 Using TTS: Cartesia Sonic (Sarah Curious voice)")
+        logger.info(f"🔊 Using TTS: Cartesia Sonic (California Girl voice)")
     except Exception as cartesia_error:
         logger.warning(f"⚠️ Primary Cartesia voice failed: {cartesia_error}")
         try:
@@ -236,7 +236,8 @@ async def entrypoint(ctx: JobContext):
     # The finally block below ensures proper teardown before returning to the worker loop
     logger.info("🔌 Agent session ended - cleaning up connections...")
     await session.aclose()
-    logger.info("✅ Session closed - ready for next job")
+    logger.info(f"SESSION_CLOSED room={ctx.room.name}")
+    logger.info("WAITING_FOR_NEXT_JOB")
 
 
 if __name__ == "__main__":
