@@ -103,15 +103,18 @@ async def entrypoint(ctx: JobContext):
     logger.info(f"🤖 Agent starting in room: {ctx.room.name}")
     logger.info("✅ Cartesia TTS + EOUPlugin turn detector ready for webhook mode")
 
-    # Verify OpenAI API key is available
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    if not openai_api_key:
-        logger.error("❌ OPENAI_API_KEY not set in environment. Agent will not function.")
-        return
-
-    # Load environment configuration
+    # Load environment configuration and check LLM provider
     llm_model = os.getenv("LLM_MODEL", "gpt-4o-mini")
     logger.info(f"📊 Using LLM model: {llm_model}")
+
+    # Verify OpenAI API key only if using OpenAI
+    if "openai" in llm_model.lower():
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not openai_api_key:
+            logger.error("❌ OPENAI_API_KEY not set in environment. Agent will not function.")
+            return
+    else:
+        logger.info(f"⚠️ Using non-OpenAI LLM model, skipping OpenAI key check")
 
     # Set up a voice AI pipeline with OpenAI LLM and system prompt
     system_prompt = load_system_prompt()
@@ -246,7 +249,11 @@ if __name__ == "__main__":
         # Keep restarting the worker if it exits
         while True:
             try:
-                cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm))
+                cli.run_app(WorkerOptions(
+                    entrypoint_fnc=entrypoint,
+                    prewarm_fnc=prewarm,
+                    agent_name="roleplay"
+                ))
             except Exception as e:
                 logger.error(f"❌ Worker error: {e}")
                 logger.info("🔄 Restarting worker in 5 seconds...")
