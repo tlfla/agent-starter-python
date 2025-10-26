@@ -75,7 +75,9 @@ class Assistant(Agent):
 
 
 def prewarm(proc: JobProcess):
-    proc.userdata["vad"] = silero.VAD.load()
+    # Increase activation threshold to 0.6 for better background noise filtering
+    # Higher threshold = more conservative detection, less sensitive to noise
+    proc.userdata["vad"] = silero.VAD.load(activation_threshold=0.6)
 
 
 async def dev_mode_entrypoint(ctx: JobContext):
