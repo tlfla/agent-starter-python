@@ -122,11 +122,11 @@ async def entrypoint(ctx: JobContext):
     # Set up a voice AI pipeline with OpenAI LLM and system prompt
     system_prompt = load_system_prompt()
 
-    # Voice rotation pool - Doris, Lynda, and Denise
+    # Voice rotation pool - Doris and 2 new voices
     VOICE_POOL = [
         "0c8ed86e-6c64-40f0-b252-b773911de6bb",  # Doris
-        "829ccd10-f8b3-43cd-b8a0-4aeaa81f3b30",  # Lynda
-        "8a1b8af0-c4f6-423f-a268-5507fd4aefdf"   # Denise
+        "78ab82d5-25be-4f7d-82b3-7ad64e5b85b2",  # New voice 1
+        "66c6b81c-ddb7-4892-bdd5-19b5a7be38e7"   # New voice 2
     ]
     selected_voice = random.choice(VOICE_POOL)
     logger.info(f"🎲 Selected voice for this session: {selected_voice}")
