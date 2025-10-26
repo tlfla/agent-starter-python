@@ -96,6 +96,10 @@ class Assistant(Agent):
             instructions=system_prompt,
         )
 
+    async def _before_tts_cb(self, agent_reply: str):
+        """Capture agent reply before it goes to TTS."""
+        self.transcript_collector.note_agent(agent_reply)
+
     # To add tools, use the @function_tool decorator.
     # Here's an example that adds a simple weather tool.
     # You also have to add `from livekit.agents import function_tool, RunContext` to the top of this file
@@ -460,6 +464,17 @@ async def entrypoint(ctx: JobContext):
     await session.generate_reply(
         instructions="Say only the word 'Hello' in a friendly tone. Do not say anything else."
     )
+
+    # Send ping to verify data channel is working
+    try:
+        ping_message = json.dumps({"type": "ping", "payload": {"ts": datetime.now(timezone.utc).isoformat()}})
+        await ctx.room.local_participant.publish_data(
+            ping_message.encode("utf-8"),
+            reliable=True
+        )
+        logger.info("📡 Sent ping to verify data channel")
+    except Exception as e:
+        logger.error(f"Failed to send ping: {e}")
 
 
 if __name__ == "__main__":
