@@ -87,53 +87,95 @@ class Assistant(Agent):
 
 async def evaluate_call(transcript_buffer: list, openai_api_key: str) -> dict:
     """
-    Send transcript to OpenAI for evaluation.
-    Returns: {"scores": {...}, "summary": "..."} or {"error": "...", "summary": ""}
+    Send transcript to OpenAI for comprehensive evaluation using full coaching prompt.
+    Returns detailed evaluation with scores, wins, improvements, and training links.
     """
     if not OPENAI_API_AVAILABLE or not openai:
-        return {"error": "OpenAI not available", "summary": ""}
+        return {"error": "OpenAI not available"}
 
     if not transcript_buffer:
-        return {"error": "No transcript data", "summary": ""}
+        return {"error": "No transcript data"}
 
     try:
-        # Build compact transcript JSON
-        transcript_json = json.dumps(transcript_buffer, indent=None)
+        # Training mapping for lesson recommendations
+        training_mapping = {
+            "rapport_building": "Elicitation Module 1: Intent, Rapport, Psychological Safety",
+            "objection_handling": "Elicitation Module 7: Resistance & De-escalation",
+            "tone_confidence": "Negotiation Module 4: Late-Night FM DJ Voice",
+            "mirror_matching": "Elicitation Module 3: Pace Mirror",
+            "vak_alignment": "DISC/VAK: VAK Learning Styles"
+        }
 
-        # Call OpenAI Chat Completions
+        # Simplified evaluation prompt focused on core metrics
+        evaluation_prompt = """You are an expert real estate coach evaluating a completed roleplay call.
+
+SCORING (0-10 scale):
+- 9-10: Exceptional mastery
+- 7-8: Strong execution
+- 5-6: Adequate but inconsistent
+- 3-4: Needs work
+- 0-2: Poor or harmful
+
+REQUIRED OUTPUT (valid JSON only):
+{
+  "overall_score": 7.8,
+  "scores": {
+    "rapport_building": 8,
+    "objection_handling": 7,
+    "tone_confidence": 8
+  },
+  "top_wins": [
+    "Strong warm introduction that created psychological safety",
+    "Used Name-Pace-Bridge technique on commission objection",
+    "Maintained confident tone with downward inflection"
+  ],
+  "top_improvements": [
+    "Label emotions before proceeding ('It sounds like you're feeling uncertain')",
+    "Match client's slower pace during objections instead of speeding up",
+    "Use embedded commands ('Tuesday or Thursday?' vs 'Can we meet?')"
+  ],
+  "training_links": [
+    "Elicitation Module 4: Acknowledge and Validate",
+    "Elicitation Module 3: Pace Mirror"
+  ],
+  "summary": "Strong rapport and tone. Focus on labeling emotions explicitly and matching client pace during resistance."
+}
+
+Return ONLY valid JSON. Be specific and encouraging."""
+
+        # Format transcript for evaluation
+        formatted_transcript = []
+        for entry in transcript_buffer:
+            speaker = "Realtor" if entry["speaker"] == "agent" else "Client"
+            formatted_transcript.append(f"{speaker}: {entry['text']}")
+
+        transcript_text = "\n".join(formatted_transcript)
+
+        # Call OpenAI with full evaluation
         client = openai.OpenAI(api_key=openai_api_key)
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are a strict call evaluator for realtor role-play training. Analyze the conversation and return ONLY valid JSON with this exact structure: {\"scores\": {\"rapport\": <0-10>, \"objection_handling\": <0-10>, \"tone\": <0-10>}, \"summary\": \"<1-3 sentences>\"}. Be concise and specific."
-                },
-                {
-                    "role": "user",
-                    "content": f"Evaluate this role-play call transcript:\n{transcript_json}"
-                }
+                {"role": "system", "content": evaluation_prompt},
+                {"role": "user", "content": f"Evaluate this roleplay call:\n\n{transcript_text}"}
             ],
             temperature=0.3,
-            max_tokens=300
+            max_tokens=1500,
+            response_format={"type": "json_object"}
         )
 
-        # Parse the response
+        # Parse response
         result_text = response.choices[0].message.content.strip()
         result = json.loads(result_text)
-
-        # Ensure proper structure
-        if "scores" not in result or "summary" not in result:
-            return {"error": "Invalid response format", "summary": ""}
 
         return result
 
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse OpenAI response: {e}")
-        return {"error": "Invalid JSON from evaluator", "summary": ""}
+        logger.error(f"JSON parse error: {e}")
+        return {"error": "Invalid JSON from evaluator"}
     except Exception as e:
         logger.error(f"Evaluation error: {e}")
-        return {"error": str(e), "summary": ""}
+        return {"error": str(e)}
 
 
 def prewarm(proc: JobProcess):
