@@ -96,10 +96,6 @@ class Assistant(Agent):
             instructions=system_prompt,
         )
 
-    async def _before_tts_cb(self, agent_reply: str):
-        """Capture agent reply before TTS."""
-        self.transcript_collector.note_agent(agent_reply)
-
     # To add tools, use the @function_tool decorator.
     # Here's an example that adds a simple weather tool.
     # You also have to add `from livekit.agents import function_tool, RunContext` to the top of this file
@@ -321,21 +317,27 @@ async def entrypoint(ctx: JobContext):
         metrics.log_metrics(ev.metrics)
         usage_collector.collect(ev.metrics)
 
-    # NOTE: These event names may not exist in current LiveKit Agents SDK (1.2.15)
-    # If logs show "No user speech to evaluate", these events are not firing.
-    # The Assistant._before_tts_cb fallback should still capture agent replies.
-    # TODO: Check SDK docs for correct STT final event name if user capture fails.
+    # Primary user transcript capture - fires when STT finalizes transcription
+    @session.on("user_input_transcribed")
+    def _on_user_input_transcribed(ev):
+        """Capture user speech when transcription is finalized."""
+        if hasattr(ev, 'is_final') and ev.is_final:
+            transcript_text = ev.transcript if hasattr(ev, 'transcript') else str(ev)
+            logger.info(f"🗣️ User transcript (final): {transcript_text[:100]}...")
+            transcript_collector.note_user(transcript_text)
+            logger.info(f"📝 Transcript has {len(transcript_collector)} items")
 
+    # Legacy event handlers (may not fire in SDK 1.2.15, but kept for compatibility)
     @session.on("user_speech_committed")
     def _on_user_speech_committed(message: str):
-        """Log when user speech is converted to text."""
-        logger.info(f"🗣️ User transcript: {message[:100]}...")
+        """Fallback for user speech (legacy event)."""
+        logger.info(f"🗣️ User transcript (legacy): {message[:100]}...")
         transcript_collector.note_user(message)
         logger.info(f"📝 Transcript has {len(transcript_collector)} items")
 
     @session.on("agent_speech_committed")
     def _on_agent_speech_committed(message: str):
-        """Log when agent generates a response."""
+        """Capture agent final reply text."""
         logger.info(f"🧠 Agent reply: {message[:100]}...")
         transcript_collector.note_agent(message)
         logger.info(f"📝 Transcript has {len(transcript_collector)} items")
