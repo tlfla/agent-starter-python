@@ -42,6 +42,34 @@ logger = logging.getLogger("agent")
 load_dotenv(".env.local")
 
 
+class TranscriptCollector:
+    """Collects conversation transcript from multiple sources."""
+    def __init__(self):
+        self.items = []
+
+    def note_user(self, text: str):
+        if text.strip():
+            self.items.append({
+                "t": datetime.now(timezone.utc).isoformat(),
+                "speaker": "user",
+                "text": text
+            })
+
+    def note_agent(self, text: str):
+        if text.strip():
+            self.items.append({
+                "t": datetime.now(timezone.utc).isoformat(),
+                "speaker": "agent",
+                "text": text
+            })
+
+    def to_json(self) -> list:
+        return self.items
+
+    def __len__(self):
+        return len(self.items)
+
+
 def load_system_prompt() -> str:
     """Load system prompt from file with error handling."""
     prompt_path = os.getenv("ROLEPLAY_PROMPT_PATH", "src/prompt/roleplay_system_prompt.txt")
@@ -61,11 +89,16 @@ def load_system_prompt() -> str:
 
 
 class Assistant(Agent):
-    def __init__(self) -> None:
+    def __init__(self, transcript_collector: TranscriptCollector) -> None:
         system_prompt = load_system_prompt()
+        self.transcript_collector = transcript_collector
         super().__init__(
             instructions=system_prompt,
         )
+
+    async def _before_tts_cb(self, agent_reply: str):
+        """Capture agent reply before TTS."""
+        self.transcript_collector.note_agent(agent_reply)
 
     # To add tools, use the @function_tool decorator.
     # Here's an example that adds a simple weather tool.
@@ -218,8 +251,8 @@ async def entrypoint(ctx: JobContext):
         "room": ctx.room.name,
     }
 
-    # Transcript capture buffer for evaluation
-    transcript_buffer = []
+    # Transcript collector for evaluation
+    transcript_collector = TranscriptCollector()
     evaluate_enabled = False
 
     logger.info(f"🤖 Agent starting in room: {ctx.room.name}")
@@ -292,25 +325,15 @@ async def entrypoint(ctx: JobContext):
     def _on_user_speech_committed(message: str):
         """Log when user speech is converted to text."""
         logger.info(f"🗣️ User transcript: {message[:100]}...")
-        # Capture user turn in transcript buffer
-        transcript_buffer.append({
-            "t": datetime.now(timezone.utc).isoformat(),
-            "speaker": "user",
-            "text": message
-        })
-        logger.info(f"📝 Transcript buffer now has {len(transcript_buffer)} items")
+        transcript_collector.note_user(message)
+        logger.info(f"📝 Transcript has {len(transcript_collector)} items")
 
     @session.on("agent_speech_committed")
     def _on_agent_speech_committed(message: str):
         """Log when agent generates a response."""
         logger.info(f"🧠 Agent reply: {message[:100]}...")
-        # Capture agent turn in transcript buffer
-        transcript_buffer.append({
-            "t": datetime.now(timezone.utc).isoformat(),
-            "speaker": "agent",
-            "text": message
-        })
-        logger.info(f"📝 Transcript buffer now has {len(transcript_buffer)} items")
+        transcript_collector.note_agent(message)
+        logger.info(f"📝 Transcript has {len(transcript_collector)} items")
 
     @session.on("user_speech_finished")
     def _on_user_speech_finished():
@@ -349,33 +372,26 @@ async def entrypoint(ctx: JobContext):
                 logger.info("Evaluation not enabled, skipping")
                 return
 
-            # Try to get transcript from session chat context if buffer is empty
-            if len(transcript_buffer) == 0:
-                logger.info("📝 Transcript buffer empty, trying to extract from session chat context...")
-                try:
-                    # Get chat context from the session
-                    chat_ctx = session.chat_ctx
-                    if chat_ctx and hasattr(chat_ctx, 'messages'):
-                        for msg in chat_ctx.messages:
-                            role = msg.role if hasattr(msg, 'role') else 'unknown'
-                            content = msg.content if hasattr(msg, 'content') else str(msg)
-                            speaker = "agent" if role == "assistant" else "user"
-                            transcript_buffer.append({
-                                "t": datetime.now(timezone.utc).isoformat(),
-                                "speaker": speaker,
-                                "text": content
-                            })
-                        logger.info(f"✅ Extracted {len(transcript_buffer)} messages from chat context")
-                except Exception as e:
-                    logger.error(f"Failed to extract from chat context: {e}")
+            # Check if we have transcript data
+            transcript_items = transcript_collector.to_json()
+            user_turns = [t for t in transcript_items if t["speaker"] == "user"]
 
-            # Check if we have at least one user turn
-            user_turns = [t for t in transcript_buffer if t["speaker"] == "user"]
             if not user_turns:
-                logger.warning(f"No user speech to evaluate (buffer has {len(transcript_buffer)} items)")
+                logger.warning(f"No user speech to evaluate (collector has {len(transcript_collector)} items)")
+                # Send error response
+                try:
+                    error_result = {"type": "evaluation_ready", "data": {"error": "no_transcript", "summary": ""}}
+                    error_json = json.dumps(error_result)
+                    await ctx.room.local_participant.publish_data(
+                        error_json.encode("utf-8"),
+                        reliable=True
+                    )
+                    logger.info(f"evaluation_ready: {len(error_json)} chars")
+                except Exception as e:
+                    logger.error(f"Failed to send error result: {e}")
                 return
 
-            logger.info(f"✅ Starting evaluation on {len(transcript_buffer)} transcript items...")
+            logger.info(f"✅ Starting evaluation on {len(transcript_collector)} transcript items...")
 
             # Get OpenAI API key
             openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -385,18 +401,17 @@ async def entrypoint(ctx: JobContext):
 
             # Run evaluation
             logger.info("🤖 Calling OpenAI for evaluation...")
-            result = await evaluate_call(transcript_buffer, openai_api_key)
+            result = await evaluate_call(transcript_items, openai_api_key)
             logger.info(f"✅ OpenAI returned result: {list(result.keys())}")
 
             # Send result via data channel
             try:
                 result_json = json.dumps({"type": "evaluation_ready", "data": result})
-                logger.info(f"📤 Sending evaluation_ready message ({len(result_json)} chars)")
                 await ctx.room.local_participant.publish_data(
                     result_json.encode("utf-8"),
                     reliable=True
                 )
-                logger.info(f"✅ evaluation_ready sent successfully")
+                logger.info(f"evaluation_ready: {len(result_json)} chars")
             except Exception as e:
                 logger.error(f"❌ Failed to send evaluation result: {e}")
                 import traceback
@@ -419,7 +434,7 @@ async def entrypoint(ctx: JobContext):
 
     # Start the session, which initializes the voice pipeline and warms up the models
     await session.start(
-        agent=Assistant(),
+        agent=Assistant(transcript_collector),
         room=ctx.room,
         room_input_options=RoomInputOptions(
             # For telephony applications, use `BVCTelephony` for best results
