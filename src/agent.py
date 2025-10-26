@@ -90,10 +90,14 @@ async def evaluate_call(transcript_buffer: list, openai_api_key: str) -> dict:
     Send transcript to OpenAI for comprehensive evaluation using full coaching prompt.
     Returns detailed evaluation with scores, wins, improvements, and training links.
     """
+    logger.info(f"📊 evaluate_call started with {len(transcript_buffer)} transcript items")
+
     if not OPENAI_API_AVAILABLE or not openai:
+        logger.error("❌ OpenAI not available")
         return {"error": "OpenAI not available"}
 
     if not transcript_buffer:
+        logger.error("❌ No transcript data")
         return {"error": "No transcript data"}
 
     try:
@@ -150,8 +154,10 @@ Return ONLY valid JSON. Be specific and encouraging."""
             formatted_transcript.append(f"{speaker}: {entry['text']}")
 
         transcript_text = "\n".join(formatted_transcript)
+        logger.info(f"📝 Formatted transcript: {len(transcript_text)} chars")
 
         # Call OpenAI with full evaluation
+        logger.info("🔄 Creating OpenAI client and calling API...")
         client = openai.OpenAI(api_key=openai_api_key)
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -163,18 +169,24 @@ Return ONLY valid JSON. Be specific and encouraging."""
             max_tokens=1500,
             response_format={"type": "json_object"}
         )
+        logger.info("✅ OpenAI API call completed")
 
         # Parse response
         result_text = response.choices[0].message.content.strip()
+        logger.info(f"📄 Response text: {len(result_text)} chars")
         result = json.loads(result_text)
+        logger.info(f"✅ Parsed JSON successfully: {list(result.keys())}")
 
         return result
 
     except json.JSONDecodeError as e:
-        logger.error(f"JSON parse error: {e}")
+        logger.error(f"❌ JSON parse error: {e}")
+        logger.error(f"Raw response: {result_text if 'result_text' in locals() else 'N/A'}")
         return {"error": "Invalid JSON from evaluator"}
     except Exception as e:
-        logger.error(f"Evaluation error: {e}")
+        logger.error(f"❌ Evaluation error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return {"error": str(e)}
 
 
@@ -328,36 +340,49 @@ async def entrypoint(ctx: JobContext):
 
     async def run_evaluation():
         """Run evaluation if enabled and send result via data channel."""
-        if not evaluate_enabled:
-            return
-
-        # Check if we have at least one user turn
-        user_turns = [t for t in transcript_buffer if t["speaker"] == "user"]
-        if not user_turns:
-            logger.info("No user speech to evaluate")
-            return
-
-        logger.info(f"Running evaluation on {len(transcript_buffer)} transcript items...")
-
-        # Get OpenAI API key
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not openai_api_key:
-            logger.error("OPENAI_API_KEY not set, cannot evaluate")
-            return
-
-        # Run evaluation
-        result = await evaluate_call(transcript_buffer, openai_api_key)
-
-        # Send result via data channel
         try:
-            result_json = json.dumps({"type": "evaluation_ready", "data": result})
-            await ctx.room.local_participant.publish_data(
-                result_json.encode("utf-8"),
-                reliable=True
-            )
-            logger.info(f"evaluation_ready: {len(result_json)} chars")
+            logger.info(f"🔍 run_evaluation called, evaluate_enabled={evaluate_enabled}")
+
+            if not evaluate_enabled:
+                logger.info("Evaluation not enabled, skipping")
+                return
+
+            # Check if we have at least one user turn
+            user_turns = [t for t in transcript_buffer if t["speaker"] == "user"]
+            if not user_turns:
+                logger.warning(f"No user speech to evaluate (buffer has {len(transcript_buffer)} items)")
+                return
+
+            logger.info(f"✅ Starting evaluation on {len(transcript_buffer)} transcript items...")
+
+            # Get OpenAI API key
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            if not openai_api_key:
+                logger.error("❌ OPENAI_API_KEY not set, cannot evaluate")
+                return
+
+            # Run evaluation
+            logger.info("🤖 Calling OpenAI for evaluation...")
+            result = await evaluate_call(transcript_buffer, openai_api_key)
+            logger.info(f"✅ OpenAI returned result: {list(result.keys())}")
+
+            # Send result via data channel
+            try:
+                result_json = json.dumps({"type": "evaluation_ready", "data": result})
+                logger.info(f"📤 Sending evaluation_ready message ({len(result_json)} chars)")
+                await ctx.room.local_participant.publish_data(
+                    result_json.encode("utf-8"),
+                    reliable=True
+                )
+                logger.info(f"✅ evaluation_ready sent successfully")
+            except Exception as e:
+                logger.error(f"❌ Failed to send evaluation result: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
         except Exception as e:
-            logger.error(f"Failed to send evaluation result: {e}")
+            logger.error(f"❌ Error in run_evaluation: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
     ctx.add_shutdown_callback(log_usage)
     # Note: run_evaluation is now called via data channel message, not shutdown callback
