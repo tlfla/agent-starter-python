@@ -58,7 +58,8 @@ def load_system_prompt() -> str:
 async def publish_normalized_audio(
     room: rtc.Room,
     tts_instance: cartesia.TTS,
-    text: str
+    text: str,
+    ctx: JobContext
 ) -> None:
     """
     Custom audio publishing pipeline:
@@ -67,6 +68,12 @@ async def publish_normalized_audio(
     3. Stream to LiveKit AudioSource with custom publish options
     """
     try:
+        # iPhone clipping safeguard: add 120ms SSML pause before first TTS phrase
+        if ctx.proc.userdata.get("is_first_tts", False):
+            text = f"<speak><break time='120ms'/>{text}</speak>"
+            ctx.proc.userdata["is_first_tts"] = False
+            logger.info("🔇 Added 120ms SSML break to prevent iPhone clipping on first phrase")
+
         # Generate TTS audio from Cartesia (PCM 16-bit, 24kHz default)
         audio_stream = tts_instance.synthesize(text)
 
@@ -217,36 +224,24 @@ async def entrypoint(ctx: JobContext):
     # Set up a voice AI pipeline with OpenAI LLM and system prompt
     system_prompt = load_system_prompt()
 
-    # Voice rotation pool - randomly select one voice per call
+    # Voice rotation pool - Doris, Lynda, and Denise
     VOICE_POOL = [
-        "ec1e269e-9ca0-402f-8a18-58e0e022355a",  # Original voice
-        "78ab82d5-25be-4f7d-82b3-7ad64e5b85b2",  # Voice A
-        "0c8ed86e-6c64-40f0-b252-b773911de6bb"   # Voice B
+        "0c8ed86e-6c64-40f0-b252-b773911de6bb",  # Doris
+        "829ccd10-f8b3-43cd-b8a0-4aeaa81f3b30",  # Lynda
+        "8a1b8af0-c4f6-423f-a268-5507fd4aefdf"   # Denise
     ]
     selected_voice = random.choice(VOICE_POOL)
     logger.info(f"🎲 Selected voice for this session: {selected_voice}")
 
-    # Configure TTS - Cartesia with fallback logic
-    try:
-        # Try randomly selected Cartesia voice
-        tts_option = cartesia.TTS(
-            voice=selected_voice,
-            model="sonic-2-2025-06-11"
-        )
-        logger.info(f"🔊 Using TTS: Cartesia Sonic with voice {selected_voice}")
-    except Exception as cartesia_error:
-        logger.warning(f"⚠️ Primary Cartesia voice failed: {cartesia_error}")
-        try:
-            # Fallback to alternative Cartesia voice
-            tts_option = cartesia.TTS(
-                voice="a0e99841-438c-4a64-b679-ae501e7d6091",
-                model="sonic-2-2025-06-11"
-            )
-            logger.info(f"🔊 Using TTS: Cartesia Sonic (friendly woman - fallback voice)")
-        except Exception as e:
-            logger.error(f"❌ All Cartesia voices failed: {e}")
-            logger.error("Please check your CARTESIA_API_KEY and plugin installation")
-            return
+    # Session flag to track first TTS call (for iPhone clipping safeguard)
+    ctx.proc.userdata["is_first_tts"] = True
+
+    # Configure TTS - Cartesia
+    tts_option = cartesia.TTS(
+        voice=selected_voice,
+        model="sonic-2-2025-06-11"
+    )
+    logger.info(f"🔊 Using TTS: Cartesia Sonic with voice {selected_voice}")
 
     session = AgentSession(
         # Speech-to-text (STT) - convert user speech to text
@@ -330,7 +325,7 @@ async def entrypoint(ctx: JobContext):
         logger.info(f"🔊 Publishing canary: {canary_text}")
 
         # Publish canary using custom audio pipeline with LUFS normalization and FEC
-        await publish_normalized_audio(ctx.room, tts_option, canary_text)
+        await publish_normalized_audio(ctx.room, tts_option, canary_text, ctx)
         logger.info("🔊 TTS Canary: Finished and published to room with custom pipeline")
     except Exception as e:
         logger.error(f"❌ TTS Canary failed: {e}")
