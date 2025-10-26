@@ -214,16 +214,15 @@ async def entrypoint(ctx: JobContext):
     await ctx.connect()
 
     # Canary: Publish a test message to verify TTS is working
-    # On mobile, prepend 120ms SSML break to prevent clipping
+    # Use ellipsis to create a natural pause before "Hello" for mobile
     logger.info("🔊 TTS Canary: Starting test message...")
     try:
-        canary_text = "<speak><break time='120ms'/>Hello!</speak>"
-        logger.info(f"🔊 Publishing canary with SSML break for mobile: {canary_text}")
+        canary_text = "... Hello!"
+        logger.info(f"🔊 Publishing canary: {canary_text}")
         await session.say(canary_text, allow_interruptions=False)
         logger.info("🔊 TTS Canary: Finished")
     except Exception as e:
         logger.error(f"❌ TTS Canary failed: {e}")
-        logger.info("⚠️ Continuing without canary...")
 
     # Agent is ready - session handles all voice interaction automatically
     # The session.start() call above manages the interaction loop until the room ends
