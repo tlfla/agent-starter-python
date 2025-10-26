@@ -298,6 +298,7 @@ async def entrypoint(ctx: JobContext):
             "speaker": "user",
             "text": message
         })
+        logger.info(f"📝 Transcript buffer now has {len(transcript_buffer)} items")
 
     @session.on("agent_speech_committed")
     def _on_agent_speech_committed(message: str):
@@ -309,6 +310,7 @@ async def entrypoint(ctx: JobContext):
             "speaker": "agent",
             "text": message
         })
+        logger.info(f"📝 Transcript buffer now has {len(transcript_buffer)} items")
 
     @session.on("user_speech_finished")
     def _on_user_speech_finished():
