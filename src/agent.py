@@ -213,28 +213,12 @@ async def entrypoint(ctx: JobContext):
     # Join the room and connect to the user
     await ctx.connect()
 
-    # Canary: Publish a test message to verify TTS is working
-    # Use ellipsis to create a natural pause before "Hello" for mobile
-    logger.info("🔊 TTS Canary: Starting test message...")
-    try:
-        canary_text = "... Hello!"
-        logger.info(f"🔊 Publishing canary: {canary_text}")
-        await session.say(canary_text, allow_interruptions=False)
-        logger.info("🔊 TTS Canary: Finished")
-    except Exception as e:
-        logger.error(f"❌ TTS Canary failed: {e}")
-
-    # Agent is ready - session handles all voice interaction automatically
-    # The session.start() call above manages the interaction loop until the room ends
-    # This entrypoint will return when the session completes naturally
-    # allowing the worker to clean up and immediately poll for the next job
-    logger.info("✅ Agent is now ready and waiting for user interactions...")
-    # Note: session.start() completes when the room ends, then we fall through to cleanup
-    # The finally block below ensures proper teardown before returning to the worker loop
-    logger.info("🔌 Agent session ended - cleaning up connections...")
-    await session.aclose()
-    logger.info(f"SESSION_CLOSED room={ctx.room.name}")
-    logger.info("WAITING_FOR_NEXT_JOB")
+    # Generate initial greeting and wait for session to complete
+    # This blocks until the room disconnects or session ends
+    logger.info("✅ Agent ready - generating greeting and waiting for user...")
+    await session.generate_reply(
+        instructions="Say a brief friendly hello to greet the user."
+    )
 
 
 if __name__ == "__main__":
