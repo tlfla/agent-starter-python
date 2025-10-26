@@ -253,7 +253,8 @@ if __name__ == "__main__":
                 cli.run_app(WorkerOptions(
                     entrypoint_fnc=entrypoint,
                     prewarm_fnc=prewarm,
-                    agent_name="roleplay"
+                    agent_name="roleplay",
+                    num_idle_processes=10  # Keep 10 worker processes warm for concurrent sessions
                 ))
             except Exception as e:
                 logger.error(f"❌ Worker error: {e}")
