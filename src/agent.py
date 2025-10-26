@@ -2,9 +2,11 @@ import logging
 import os
 import pathlib
 import asyncio
+import io
+import numpy as np
 
 from dotenv import load_dotenv
-from livekit import api
+from livekit import api, rtc
 from livekit.agents import (
     Agent,
     AgentSession,
@@ -15,8 +17,11 @@ from livekit.agents import (
     WorkerOptions,
     cli,
     metrics,
+    utils,
 )
 from livekit.plugins import noise_cancellation, silero, cartesia
+from pydub import AudioSegment
+from pydub.effects import normalize
 
 try:
     from livekit.plugins import openai as openai_plugin
@@ -47,6 +52,96 @@ def load_system_prompt() -> str:
     except Exception as e:
         logger.error(f"❌ Error loading system prompt: {e}")
         return "You are Coach Ava, a helpful real estate roleplay partner. Keep responses concise and friendly."
+
+
+async def publish_normalized_audio(
+    room: rtc.Room,
+    tts_instance: cartesia.TTS,
+    text: str
+) -> None:
+    """
+    Custom audio publishing pipeline:
+    1. Generate TTS audio from Cartesia
+    2. Normalize to -16 LUFS target
+    3. Stream to LiveKit AudioSource with custom publish options
+    """
+    try:
+        # Generate TTS audio from Cartesia (PCM 16-bit, 24kHz default)
+        audio_stream = tts_instance.synthesize(text)
+
+        # Collect audio chunks into bytes
+        audio_bytes = io.BytesIO()
+        async for chunk in audio_stream:
+            if hasattr(chunk, 'data'):
+                audio_bytes.write(chunk.data)
+            else:
+                audio_bytes.write(chunk)
+
+        audio_bytes.seek(0)
+
+        # Load into pydub for LUFS normalization
+        audio_segment = AudioSegment.from_raw(
+            audio_bytes,
+            sample_width=2,  # 16-bit PCM
+            frame_rate=24000,  # Cartesia default sample rate
+            channels=1  # Mono
+        )
+
+        # Normalize to -16 LUFS target (lightweight loudness normalization)
+        target_dBFS = -16.0
+        change_in_dBFS = target_dBFS - audio_segment.dBFS
+        normalized_audio = audio_segment.apply_gain(change_in_dBFS)
+
+        # Convert back to PCM bytes
+        normalized_bytes = normalized_audio.raw_data
+
+        # Create LiveKit AudioSource (16-bit PCM, 24kHz, mono)
+        audio_source = rtc.AudioSource(24000, 1)
+
+        # Create audio track with custom publish options
+        audio_track = rtc.LocalAudioTrack.create_audio_track("agent-voice", audio_source)
+
+        # Publish options: 40 kbps bitrate, DTX off, FEC/RED on
+        options = rtc.TrackPublishOptions(
+            source=rtc.TrackSource.SOURCE_MICROPHONE,
+            red=True,  # Redundancy encoding for packet loss recovery
+        )
+
+        # Publish the track
+        publication = await room.local_participant.publish_track(audio_track, options)
+        logger.info(f"[CUSTOM_AUDIO] Published track with FEC/RED enabled")
+
+        # Stream normalized PCM to AudioSource
+        frame_size = 480  # 20ms at 24kHz
+        num_frames = len(normalized_bytes) // (frame_size * 2)  # 2 bytes per sample
+
+        for i in range(num_frames):
+            start = i * frame_size * 2
+            end = start + frame_size * 2
+            frame_data = normalized_bytes[start:end]
+
+            # Convert to numpy int16 array
+            audio_frame = np.frombuffer(frame_data, dtype=np.int16)
+
+            # Push to AudioSource
+            await audio_source.capture_frame(
+                rtc.AudioFrame(
+                    data=audio_frame.tobytes(),
+                    sample_rate=24000,
+                    num_channels=1,
+                    samples_per_channel=frame_size
+                )
+            )
+
+            # Small delay to simulate real-time playback
+            await asyncio.sleep(0.02)  # 20ms
+
+        # Unpublish track after playback
+        await room.local_participant.unpublish_track(audio_track.sid)
+        logger.info("[CUSTOM_AUDIO] Track unpublished after playback")
+
+    except Exception as e:
+        logger.error(f"❌ Error in custom audio publishing: {e}")
 
 
 class Assistant(Agent):
@@ -224,9 +319,9 @@ async def entrypoint(ctx: JobContext):
         canary_text = "Hello!"
         logger.info(f"🔊 Publishing canary: {canary_text}")
 
-        # Publish the canary audio to the room using session.say()
-        await session.say(canary_text)
-        logger.info("🔊 TTS Canary: Finished and published to room")
+        # Publish canary using custom audio pipeline with LUFS normalization and FEC
+        await publish_normalized_audio(ctx.room, tts_option, canary_text)
+        logger.info("🔊 TTS Canary: Finished and published to room with custom pipeline")
     except Exception as e:
         logger.error(f"❌ TTS Canary failed: {e}")
         logger.info("⚠️ Continuing without canary...")
