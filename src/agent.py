@@ -210,6 +210,8 @@ async def entrypoint(ctx: JobContext):
         room_input_options=RoomInputOptions(
             # For telephony applications, use `BVCTelephony` for best results
             noise_cancellation=noise_cancellation.BVC(),
+            # Don't close agent session on brief client disconnects (iOS Safari may briefly drop)
+            close_on_disconnect=False,
         ),
     )
 
