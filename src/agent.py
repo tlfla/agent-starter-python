@@ -305,7 +305,7 @@ async def entrypoint(ctx: JobContext):
 
     # Data channel handler to receive evaluate flag from frontend
     @ctx.room.on("data_received")
-    async def _on_data_received(data_packet: rtc.DataPacket):
+    def _on_data_received(data_packet: rtc.DataPacket):
         """Handle data messages from frontend (e.g., evaluate flag)."""
         nonlocal evaluate_enabled
         try:
@@ -316,7 +316,9 @@ async def entrypoint(ctx: JobContext):
             elif payload.get("type") == "request_evaluation":
                 # Frontend is about to disconnect, run evaluation now
                 logger.info("📊 Received evaluation request from client")
-                await run_evaluation()
+                # Run evaluation asynchronously without blocking
+                import asyncio
+                asyncio.create_task(run_evaluation())
         except Exception as e:
             logger.error(f"Error parsing data message: {e}")
 
