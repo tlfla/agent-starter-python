@@ -2,6 +2,8 @@ import logging
 import os
 import pathlib
 import random
+import json
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from livekit import api, rtc
@@ -26,6 +28,14 @@ except ImportError:
     OPENAI_PLUGIN_AVAILABLE = False
     logger_init = logging.getLogger("agent")
     logger_init.warning("⚠️ OpenAI plugin not available, will use Silero TTS")
+
+# Import OpenAI for evaluation API calls
+try:
+    import openai
+    OPENAI_API_AVAILABLE = True
+except ImportError:
+    OPENAI_API_AVAILABLE = False
+    openai = None
 
 logger = logging.getLogger("agent")
 
@@ -75,6 +85,57 @@ class Assistant(Agent):
     #     return "sunny with a temperature of 70 degrees."
 
 
+async def evaluate_call(transcript_buffer: list, openai_api_key: str) -> dict:
+    """
+    Send transcript to OpenAI for evaluation.
+    Returns: {"scores": {...}, "summary": "..."} or {"error": "...", "summary": ""}
+    """
+    if not OPENAI_API_AVAILABLE or not openai:
+        return {"error": "OpenAI not available", "summary": ""}
+
+    if not transcript_buffer:
+        return {"error": "No transcript data", "summary": ""}
+
+    try:
+        # Build compact transcript JSON
+        transcript_json = json.dumps(transcript_buffer, indent=None)
+
+        # Call OpenAI Chat Completions
+        client = openai.OpenAI(api_key=openai_api_key)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a strict call evaluator for realtor role-play training. Analyze the conversation and return ONLY valid JSON with this exact structure: {\"scores\": {\"rapport\": <0-10>, \"objection_handling\": <0-10>, \"tone\": <0-10>}, \"summary\": \"<1-3 sentences>\"}. Be concise and specific."
+                },
+                {
+                    "role": "user",
+                    "content": f"Evaluate this role-play call transcript:\n{transcript_json}"
+                }
+            ],
+            temperature=0.3,
+            max_tokens=300
+        )
+
+        # Parse the response
+        result_text = response.choices[0].message.content.strip()
+        result = json.loads(result_text)
+
+        # Ensure proper structure
+        if "scores" not in result or "summary" not in result:
+            return {"error": "Invalid response format", "summary": ""}
+
+        return result
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse OpenAI response: {e}")
+        return {"error": "Invalid JSON from evaluator", "summary": ""}
+    except Exception as e:
+        logger.error(f"Evaluation error: {e}")
+        return {"error": str(e), "summary": ""}
+
+
 def prewarm(proc: JobProcess):
     # Increase activation threshold to 0.6 for better background noise filtering
     # Higher threshold = more conservative detection, less sensitive to noise
@@ -102,6 +163,10 @@ async def entrypoint(ctx: JobContext):
     ctx.log_context_fields = {
         "room": ctx.room.name,
     }
+
+    # Transcript capture buffer for evaluation
+    transcript_buffer = []
+    evaluate_enabled = False
 
     logger.info(f"🤖 Agent starting in room: {ctx.room.name}")
     logger.info("✅ Cartesia TTS + EOUPlugin turn detector ready for webhook mode")
@@ -173,22 +238,81 @@ async def entrypoint(ctx: JobContext):
     def _on_user_speech_committed(message: str):
         """Log when user speech is converted to text."""
         logger.info(f"🗣️ User transcript: {message[:100]}...")
+        # Capture user turn in transcript buffer
+        transcript_buffer.append({
+            "t": datetime.now(timezone.utc).isoformat(),
+            "speaker": "user",
+            "text": message
+        })
 
     @session.on("agent_speech_committed")
     def _on_agent_speech_committed(message: str):
         """Log when agent generates a response."""
         logger.info(f"🧠 Agent reply: {message[:100]}...")
+        # Capture agent turn in transcript buffer
+        transcript_buffer.append({
+            "t": datetime.now(timezone.utc).isoformat(),
+            "speaker": "agent",
+            "text": message
+        })
 
     @session.on("user_speech_finished")
     def _on_user_speech_finished():
         """Log when user stops speaking."""
         logger.info("⏸️ User speech finished, processing...")
 
+    # Data channel handler to receive evaluate flag from frontend
+    @ctx.room.on("data_received")
+    def _on_data_received(data_packet: rtc.DataPacket):
+        """Handle data messages from frontend (e.g., evaluate flag)."""
+        nonlocal evaluate_enabled
+        try:
+            payload = json.loads(data_packet.data.decode("utf-8"))
+            if payload.get("type") == "evaluate":
+                evaluate_enabled = payload.get("value", False)
+                logger.info(f"📊 Evaluation {'enabled' if evaluate_enabled else 'disabled'} by client")
+        except Exception as e:
+            logger.error(f"Error parsing data message: {e}")
+
     async def log_usage():
         summary = usage_collector.get_summary()
         logger.info(f"📊 Session usage: {summary}")
 
+    async def run_evaluation():
+        """Run evaluation if enabled and send result via data channel."""
+        if not evaluate_enabled:
+            return
+
+        # Check if we have at least one user turn
+        user_turns = [t for t in transcript_buffer if t["speaker"] == "user"]
+        if not user_turns:
+            logger.info("No user speech to evaluate")
+            return
+
+        logger.info(f"Running evaluation on {len(transcript_buffer)} transcript items...")
+
+        # Get OpenAI API key
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not openai_api_key:
+            logger.error("OPENAI_API_KEY not set, cannot evaluate")
+            return
+
+        # Run evaluation
+        result = await evaluate_call(transcript_buffer, openai_api_key)
+
+        # Send result via data channel
+        try:
+            result_json = json.dumps({"type": "evaluation_ready", "data": result})
+            await ctx.room.local_participant.publish_data(
+                result_json.encode("utf-8"),
+                reliable=True
+            )
+            logger.info(f"evaluation_ready: {len(result_json)} chars")
+        except Exception as e:
+            logger.error(f"Failed to send evaluation result: {e}")
+
     ctx.add_shutdown_callback(log_usage)
+    ctx.add_shutdown_callback(run_evaluation)
 
     # # Add a virtual avatar to the session, if desired
     # # For other providers, see https://docs.livekit.io/agents/models/avatar/
