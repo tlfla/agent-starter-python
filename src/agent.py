@@ -349,6 +349,26 @@ async def entrypoint(ctx: JobContext):
                 logger.info("Evaluation not enabled, skipping")
                 return
 
+            # Try to get transcript from session chat context if buffer is empty
+            if len(transcript_buffer) == 0:
+                logger.info("📝 Transcript buffer empty, trying to extract from session chat context...")
+                try:
+                    # Get chat context from the session
+                    chat_ctx = session.chat_ctx
+                    if chat_ctx and hasattr(chat_ctx, 'messages'):
+                        for msg in chat_ctx.messages:
+                            role = msg.role if hasattr(msg, 'role') else 'unknown'
+                            content = msg.content if hasattr(msg, 'content') else str(msg)
+                            speaker = "agent" if role == "assistant" else "user"
+                            transcript_buffer.append({
+                                "t": datetime.now(timezone.utc).isoformat(),
+                                "speaker": speaker,
+                                "text": content
+                            })
+                        logger.info(f"✅ Extracted {len(transcript_buffer)} messages from chat context")
+                except Exception as e:
+                    logger.error(f"Failed to extract from chat context: {e}")
+
             # Check if we have at least one user turn
             user_turns = [t for t in transcript_buffer if t["speaker"] == "user"]
             if not user_turns:
