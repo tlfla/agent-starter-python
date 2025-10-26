@@ -321,6 +321,11 @@ async def entrypoint(ctx: JobContext):
         metrics.log_metrics(ev.metrics)
         usage_collector.collect(ev.metrics)
 
+    # NOTE: These event names may not exist in current LiveKit Agents SDK (1.2.15)
+    # If logs show "No user speech to evaluate", these events are not firing.
+    # The Assistant._before_tts_cb fallback should still capture agent replies.
+    # TODO: Check SDK docs for correct STT final event name if user capture fails.
+
     @session.on("user_speech_committed")
     def _on_user_speech_committed(message: str):
         """Log when user speech is converted to text."""
