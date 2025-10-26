@@ -4,6 +4,7 @@ import pathlib
 import asyncio
 import io
 import numpy as np
+import random
 
 from dotenv import load_dotenv
 from livekit import api, rtc
@@ -216,14 +217,23 @@ async def entrypoint(ctx: JobContext):
     # Set up a voice AI pipeline with OpenAI LLM and system prompt
     system_prompt = load_system_prompt()
 
+    # Voice rotation pool - randomly select one voice per call
+    VOICE_POOL = [
+        "ec1e269e-9ca0-402f-8a18-58e0e022355a",  # Original voice
+        "78ab82d5-25be-4f7d-82b3-7ad64e5b85b2",  # Voice A
+        "0c8ed86e-6c64-40f0-b252-b773911de6bb"   # Voice B
+    ]
+    selected_voice = random.choice(VOICE_POOL)
+    logger.info(f"🎲 Selected voice for this session: {selected_voice}")
+
     # Configure TTS - Cartesia with fallback logic
     try:
-        # Try primary Cartesia voice (California Girl)
+        # Try randomly selected Cartesia voice
         tts_option = cartesia.TTS(
-            voice="ec1e269e-9ca0-402f-8a18-58e0e022355a",
+            voice=selected_voice,
             model="sonic-2-2025-06-11"
         )
-        logger.info(f"🔊 Using TTS: Cartesia Sonic (California Girl voice)")
+        logger.info(f"🔊 Using TTS: Cartesia Sonic with voice {selected_voice}")
     except Exception as cartesia_error:
         logger.warning(f"⚠️ Primary Cartesia voice failed: {cartesia_error}")
         try:
