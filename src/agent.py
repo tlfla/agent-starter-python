@@ -213,11 +213,11 @@ async def entrypoint(ctx: JobContext):
     # Join the room and connect to the user
     await ctx.connect()
 
-    # Generate initial greeting and wait for session to complete
+    # Simple greeting and wait for session to complete
     # This blocks until the room disconnects or session ends
-    logger.info("✅ Agent ready - generating greeting and waiting for user...")
+    logger.info("✅ Agent ready - saying hello and waiting for user...")
     await session.generate_reply(
-        instructions="Say a brief friendly hello to greet the user."
+        instructions="Say only the word 'Hello' in a friendly tone. Do not say anything else."
     )
 
 
