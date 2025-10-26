@@ -12,6 +12,8 @@ dependencies = [
     "livekit-agents[silero,turn-detector,openai,cartesia]~=1.2",
     "livekit-plugins-noise-cancellation~=0.2",
     "python-dotenv",
+    "pydub",
+    "numpy",
 ]
 
 [dependency-groups]
