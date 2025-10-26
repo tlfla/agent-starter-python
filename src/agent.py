@@ -123,8 +123,8 @@ async def entrypoint(ctx: JobContext):
     try:
         # Try primary Cartesia voice (California Girl)
         tts_option = cartesia.TTS(
-            voice="b7d50908-b17c-442d-ad8d-810c63997ed9",
-            model="sonic-english"
+            voice="ec1e269e-9ca0-402f-8a18-58e0e022355a",
+            model="sonic-2-2025-06-11"
         )
         logger.info(f"🔊 Using TTS: Cartesia Sonic (California Girl voice)")
     except Exception as cartesia_error:
@@ -133,7 +133,7 @@ async def entrypoint(ctx: JobContext):
             # Fallback to alternative Cartesia voice
             tts_option = cartesia.TTS(
                 voice="a0e99841-438c-4a64-b679-ae501e7d6091",
-                model="sonic-english"
+                model="sonic-2-2025-06-11"
             )
             logger.info(f"🔊 Using TTS: Cartesia Sonic (friendly woman - fallback voice)")
         except Exception as e:
@@ -151,7 +151,7 @@ async def entrypoint(ctx: JobContext):
         # Voice Activity Detection (VAD) - using Silero VAD
         vad=ctx.proc.userdata["vad"],
         # Allow preemptive generation while waiting for user turn end
-        preemptive_generation=True,
+        preemptive_generation=False,
     )
 
     # To use a realtime model instead of a voice pipeline, use the following session setup instead.
