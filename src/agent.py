@@ -213,12 +213,22 @@ async def entrypoint(ctx: JobContext):
     # Join the room and connect to the user
     await ctx.connect()
 
-    # Simple greeting and wait for session to complete
-    # This blocks until the room disconnects or session ends
-    logger.info("✅ Agent ready - saying hello and waiting for user...")
-    await session.generate_reply(
-        instructions="Say only the word 'Hello' in a friendly tone. Do not say anything else."
-    )
+    # Initial greeting: Ask user what scenario they want to roleplay
+    logger.info("🎭 Starting roleplay setup conversation...")
+    try:
+        await session.generate_reply(
+            instructions="""Greet the user warmly and ask them what roleplay scenario they'd like to practice today.
+
+Say something like: "Hi! I'm Coach Ava, and I'm here to help you practice your real estate calls. What type of scenario would you like to roleplay today? I can be a For Sale By Owner, an expired listing, a traditional home seller, a first-time buyer, an investor, or a renter thinking about buying. Or if you have something specific in mind, just let me know what you'd like to practice!"
+
+After they choose, confirm the scenario enthusiastically and transition naturally. For example: "Perfect! So I'll be a skeptical FSBO who's proud of doing it myself. Whenever you're ready, go ahead and call me like you normally would. I'm ready when you are!"
+
+Be conversational, encouraging, and flexible. If they describe a custom scenario, acknowledge it and adapt."""
+        )
+        logger.info("✅ Roleplay setup greeting sent")
+    except Exception as e:
+        logger.error(f"❌ Roleplay setup failed: {e}")
+        logger.info("⚠️ Continuing without initial greeting...")
 
 
 if __name__ == "__main__":
